@@ -20,7 +20,7 @@ from .utils import (
     get_user_db_path,
     get_user_name,
     load_user_settings,
-    prepare_oasst1_dataset,
+    prepare_oasst1_dataset, prepare_hh_rlhf_dataset,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,45 +31,73 @@ def import_data(q: Q):
 
     try:
         if q.client.app_db.get_dataset(1) is None:
-            logger.info("Downloading default dataset...")
-
-            path = f"{get_data_dir(q)}/oasst"
-
-            if os.path.exists(path):
-                shutil.rmtree(path)
-            os.makedirs(path, exist_ok=True)
-
-            df = prepare_oasst1_dataset(path)
-
-            cfg = load_config_py(
-                config_path=os.path.join(
-                    "llm_studio/python_configs", default_cfg.cfg_file
-                ),
-                config_name="ConfigProblemBase",
-            )
-
-            cfg.dataset.train_dataframe = os.path.join(path, "train_full.pq")
-            cfg.dataset.prompt_column = ("instruction",)
-            cfg.dataset.answer_column = "output"
-            cfg.dataset.parent_id_column = "None"
-
-            cfg_path = os.path.join(path, f"{default_cfg.cfg_file}.yaml")
-
-            save_config_yaml(cfg_path, cfg)
-
-            dataset = Dataset(
-                id=1,
-                name="oasst",
-                path=path,
-                config_file=cfg_path,
-                train_rows=df.shape[0],
-            )
-
+            logger.info("Downloading default datasets...")
+            dataset = prepare_oasst(q)
             q.client.app_db.add_dataset(dataset)
+
+            dataset = prepare_hh_dataset(q)
+            q.client.app_db.add_dataset(dataset)
+
     except Exception as e:
         q.client.app_db._session.rollback()
-        logger.warning(f"Could not download default dataset: {e}")
+        logger.warning(f"Could not prepare default datasets: {e}")
         pass
+
+
+def prepare_oasst(q):
+    path = f"{get_data_dir(q)}/oasst"
+    if os.path.exists(path):
+        shutil.rmtree(path)
+    os.makedirs(path, exist_ok=True)
+    df = prepare_oasst1_dataset(path)
+    cfg = load_config_py(
+        config_path=os.path.join(
+            "llm_studio/python_configs", default_cfg.cfg_file
+        ),
+        config_name="ConfigProblemBase",
+    )
+    cfg.dataset.train_dataframe = os.path.join(path, "train_full.pq")
+    cfg.dataset.prompt_column = ("instruction",)
+    cfg.dataset.answer_column = "output"
+    cfg.dataset.parent_id_column = "None"
+    cfg_path = os.path.join(path, f"{default_cfg.cfg_file}.yaml")
+    save_config_yaml(cfg_path, cfg)
+    dataset = Dataset(
+        id=1,
+        name="oasst",
+        path=path,
+        config_file=cfg_path,
+        train_rows=df.shape[0],
+    )
+    return dataset
+
+
+def prepare_hh_dataset(q):
+    path = f"{get_data_dir(q)}/hh"
+    if os.path.exists(path):
+        shutil.rmtree(path)
+    os.makedirs(path, exist_ok=True)
+    df = prepare_hh_rlhf_dataset(path)
+    cfg = load_config_py(
+        config_path=os.path.join(
+            "llm_studio/python_configs", default_cfg.cfg_file
+        ),
+        config_name="ConfigProblemBase",
+    )
+    cfg.dataset.train_dataframe = os.path.join(path, "train_full.pq")
+    cfg.dataset.prompt_column = ("instruction",)
+    cfg.dataset.answer_column = "output"
+    cfg.dataset.parent_id_column = "None"
+    cfg_path = os.path.join(path, f"{default_cfg.cfg_file}.yaml")
+    save_config_yaml(cfg_path, cfg)
+    dataset = Dataset(
+        id=1,
+        name="hh_dpo",
+        path=path,
+        config_file=cfg_path,
+        train_rows=df.shape[0],
+    )
+    return dataset
 
 
 async def initialize_client(q: Q) -> None:
