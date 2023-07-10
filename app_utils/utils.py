@@ -1430,7 +1430,8 @@ def get_datasets_info(df: DataFrame, q: Q) -> Tuple[DataFrame, DefaultDict]:
 
         try:
             cfg = load_config_yaml(config_file)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Could not load configuration from {config_file}")
             cfg = None
 
         if cfg is not None:

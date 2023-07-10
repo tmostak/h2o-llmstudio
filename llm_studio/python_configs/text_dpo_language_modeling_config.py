@@ -31,15 +31,10 @@ class ConfigNLPDPOLMDataset(ConfigNLPCausalLMDataset):
     rejected_response_column: str = "rejected_response"
 
     def __post_init__(self):
-        self.prompt_column = (
-            tuple(
-                self.prompt_column,
-            )
-            if isinstance(self.prompt_column, str)
-            else tuple(self.prompt_column)
-        )
         super().__post_init__()
         self._visibility["limit_chained_samples"] = -1
+        self._order.insert("chosen_response_column", after="answer_column")
+        self._order.insert("rejected_response_column", after="chosen_response_column")
 
 
 @dataclass

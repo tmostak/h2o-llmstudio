@@ -33,10 +33,9 @@ def import_data(q: Q):
     try:
         if q.client.app_db.get_dataset(1) is None:
             logger.info("Downloading default datasets...")
-            dataset = prepare_oasst(q)
+            dataset = add_oasst_dataset(q)
             q.client.app_db.add_dataset(dataset)
-
-            dataset = prepare_hh_dataset(q)
+            dataset = add_hh_dpo_dataset(q)
             q.client.app_db.add_dataset(dataset)
 
     except Exception as e:
@@ -45,7 +44,7 @@ def import_data(q: Q):
         pass
 
 
-def prepare_oasst(q):
+def add_oasst_dataset(q):
     path = f"{get_data_dir(q)}/oasst"
     if os.path.exists(path):
         shutil.rmtree(path)
@@ -55,6 +54,7 @@ def prepare_oasst(q):
         config_path="llm_studio/python_configs/text_causal_language_modeling_config",
         config_name="ConfigProblemBase",
     )
+
     cfg.dataset.train_dataframe = os.path.join(path, "train_full.pq")
     cfg.dataset.prompt_column = ("instruction",)
     cfg.dataset.answer_column = "output"
@@ -71,7 +71,7 @@ def prepare_oasst(q):
     return dataset
 
 
-def prepare_hh_dataset(q):
+def add_hh_dpo_dataset(q):
     path = f"{get_data_dir(q)}/hh"
     if os.path.exists(path):
         shutil.rmtree(path)
@@ -79,15 +79,16 @@ def prepare_hh_dataset(q):
     train_df = prepare_hh_rlhf_dataset("train")
     train_df.to_parquet(os.path.join(path, "train.pq"), index=False)
 
-    valid_df = prepare_hh_rlhf_dataset("valid")
+    valid_df = prepare_hh_rlhf_dataset("test")
     valid_df.to_parquet(os.path.join(path, "valid.pq"), index=False)
 
-    cfg = load_config_py(
+    from llm_studio.python_configs.text_dpo_language_modeling_config import ConfigProblemBase
+    cfg: ConfigProblemBase = load_config_py(
         config_path="llm_studio/python_configs/text_dpo_language_modeling_config",
         config_name="ConfigProblemBase",
     )
     cfg.dataset.train_dataframe = os.path.join(path, "train.pq")
-    cfg.dataset.valid_dataframe = os.path.join(path, "valid.pq")
+    cfg.dataset.validation_dataframe = os.path.join(path, "valid.pq")
 
     cfg.dataset.prompt_column = ("instruction",)
     cfg.dataset.answer_column = "output"
