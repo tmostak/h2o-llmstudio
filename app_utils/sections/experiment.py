@@ -139,7 +139,7 @@ async def experiment_start(q: Q) -> None:
                 ".yaml", ""
             )
         else:
-            problem_type = default_cfg.cfg_file
+            problem_type = "text_causal_language_modeling_config"
         q.client["experiment/start/cfg_file"] = problem_type
         q.client["experiment/start/cfg_category"] = problem_type.split("_")[0]
 

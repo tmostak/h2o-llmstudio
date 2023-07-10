@@ -51,16 +51,14 @@ def prepare_oasst(q):
     os.makedirs(path, exist_ok=True)
     df = prepare_oasst1_dataset(path)
     cfg = load_config_py(
-        config_path=os.path.join(
-            "llm_studio/python_configs", default_cfg.cfg_file
-        ),
+        config_path="llm_studio/python_configs/text_causal_language_modeling_config",
         config_name="ConfigProblemBase",
     )
     cfg.dataset.train_dataframe = os.path.join(path, "train_full.pq")
     cfg.dataset.prompt_column = ("instruction",)
     cfg.dataset.answer_column = "output"
     cfg.dataset.parent_id_column = "None"
-    cfg_path = os.path.join(path, f"{default_cfg.cfg_file}.yaml")
+    cfg_path = os.path.join(path, "text_causal_language_modeling_config.yaml")
     save_config_yaml(cfg_path, cfg)
     dataset = Dataset(
         id=1,
@@ -79,19 +77,17 @@ def prepare_hh_dataset(q):
     os.makedirs(path, exist_ok=True)
     df = prepare_hh_rlhf_dataset(path)
     cfg = load_config_py(
-        config_path=os.path.join(
-            "llm_studio/python_configs", default_cfg.cfg_file
-        ),
+        config_path="llm_studio/python_configs/text_dpo_language_modeling_config",
         config_name="ConfigProblemBase",
     )
     cfg.dataset.train_dataframe = os.path.join(path, "train_full.pq")
     cfg.dataset.prompt_column = ("instruction",)
     cfg.dataset.answer_column = "output"
     cfg.dataset.parent_id_column = "None"
-    cfg_path = os.path.join(path, f"{default_cfg.cfg_file}.yaml")
+    cfg_path = os.path.join(path, "text_dpo_language_modeling_config.yaml")
     save_config_yaml(cfg_path, cfg)
     dataset = Dataset(
-        id=1,
+        id=2,
         name="hh_dpo",
         path=path,
         config_file=cfg_path,
