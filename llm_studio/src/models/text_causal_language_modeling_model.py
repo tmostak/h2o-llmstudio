@@ -72,18 +72,18 @@ class TokenStoppingCriteria(StoppingCriteria):
         self.stop_word_ids = stop_word_ids
 
     def should_stop(
-        self,
-        generated_ids: torch.Tensor,
-        stop_word_id: torch.Tensor,
+            self,
+            generated_ids: torch.Tensor,
+            stop_word_id: torch.Tensor,
     ):
         if len(stop_word_id.shape) == 0:
             return (
-                torch.mean(((generated_ids == stop_word_id).sum(1) > 0).float()) == 1
+                    torch.mean(((generated_ids == stop_word_id).sum(1) > 0).float()) == 1
             ).item()
         else:
             return (
-                self.get_num_vector_found_in_matrix_rows(stop_word_id, generated_ids)
-                == generated_ids.shape[0]
+                    self.get_num_vector_found_in_matrix_rows(stop_word_id, generated_ids)
+                    == generated_ids.shape[0]
             )
 
     @staticmethod
@@ -100,14 +100,14 @@ class TokenStoppingCriteria(StoppingCriteria):
             # stride through the vector
             for i in range(len(row) - len(vector) + 1):
                 # check if the vector contains the tensor
-                if torch.all(row[i : i + len(vector)] == vector):
+                if torch.all(row[i: i + len(vector)] == vector):
                     found += 1
                     break
 
         return found
 
     def __call__(self, input_ids: torch.Tensor, scores: torch.FloatTensor, **kwargs):
-        generated_ids: torch.Tensor = input_ids[:, self.prompt_input_ids_len :]
+        generated_ids: torch.Tensor = input_ids[:, self.prompt_input_ids_len:]
         for stop_word_id in self.stop_word_ids:
             if self.should_stop(generated_ids, stop_word_id.to(generated_ids.device)):
                 if generated_ids.shape[1] == 1:
@@ -117,6 +117,117 @@ class TokenStoppingCriteria(StoppingCriteria):
                     )
                 return True
         return False
+
+
+def prepare_lora(cfg, backbone):
+    target_modules = (
+        [
+            lora_target_module.strip()
+            for lora_target_module in cfg.training.lora_target_modules.strip().split(  # noqa: E501
+            ","
+        )
+        ]
+        if cfg.training.lora_target_modules
+        else None
+    )
+    if (
+            not target_modules
+            and backbone.config.model_type
+            not in TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING
+    ):
+        # extend LORA automatic target module mapping.
+        target_modules = {
+            "RefinedWebModel": [
+                "query_key_value",
+                "dense_h_to_4h",
+                "dense_4h_to_h",
+                "dense",
+            ],
+        }.get(backbone.config.model_type)
+    lora_config = LoraConfig(
+        r=cfg.training.lora_r,
+        lora_alpha=cfg.training.lora_alpha,
+        target_modules=target_modules,
+        lora_dropout=cfg.training.lora_dropout,
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+    if cfg.architecture.gradient_checkpointing:
+        backbone.enable_input_require_grads()
+    backbone = get_peft_model(backbone, lora_config)
+    backbone.print_trainable_parameters()
+    return backbone
+
+
+def generate_text(backbone, batch, cfg, streamer, training):
+    if training and getattr(cfg.training, "use_rlhf", False):
+        # The KL-div estimation assumes sampling and specific settings
+        do_sample = True
+        temperature = cfg.training.ppo_generate_temperature
+        top_k = 0.0
+        top_p = 1.0
+        repetition_penalty = 1.0
+    else:
+        do_sample = cfg.prediction.do_sample
+        temperature = float(cfg.prediction.temperature)
+        top_k = cfg.prediction.top_k
+        top_p = float(cfg.prediction.top_p)
+        repetition_penalty = float(cfg.prediction.repetition_penalty)
+    mask_key = "prompt_attention_mask"
+    pad_keys = [
+        "prompt_input_ids",
+        "prompt_attention_mask",
+    ]
+    batch = batch_padding(
+        cfg,
+        batch,
+        training,
+        mask_key=mask_key,
+        pad_keys=pad_keys,
+    )
+    input_ids = batch["prompt_input_ids"]
+    attention_mask = batch["prompt_attention_mask"]
+    # Adding GenerationMixin type annotation for faster lookup
+    generation_function: GenerationMixin.generate = backbone.generate
+    verbosity = transformers_logging.get_verbosity()
+    stopping_criteria = StoppingCriteriaList(
+        [
+            TokenStoppingCriteria(
+                stop_word_ids=cfg.tokenizer._stop_words_ids,
+                prompt_input_ids_len=input_ids.shape[1],
+            )
+        ]
+    )
+    # force to use cache and disable gradient checkpointing if enabled
+    backbone.config.use_cache = True
+    if cfg.architecture.gradient_checkpointing:
+        backbone.gradient_checkpointing_disable()
+    transformers_logging.set_verbosity_error()
+    output = generation_function(
+        inputs=input_ids,
+        attention_mask=attention_mask,
+        generation_config=backbone.generation_config,
+        min_new_tokens=cfg.prediction.min_length_inference,
+        max_new_tokens=cfg.prediction.max_length_inference,
+        do_sample=do_sample,
+        num_beams=cfg.prediction.num_beams,
+        temperature=temperature,
+        repetition_penalty=repetition_penalty,
+        top_k=top_k,
+        top_p=top_p,
+        stopping_criteria=stopping_criteria,
+        renormalize_logits=True,
+        return_dict_in_generate=False,
+        use_cache=True,
+        streamer=streamer,
+    )
+    transformers_logging.set_verbosity(verbosity)
+    # enable checkpointing again
+    if cfg.architecture.gradient_checkpointing:
+        backbone.gradient_checkpointing_enable()
+    # remove the prompt tokens
+    output = output[:, input_ids.shape[1]:]
+    return output
 
 
 class Model(nn.Module):
@@ -143,7 +254,7 @@ class Model(nn.Module):
         )
 
         if cfg.training.lora:
-            self.backbone = self.prepare_lora(cfg=cfg, backbone=self.backbone)
+            self.backbone = prepare_lora(cfg=cfg, backbone=self.backbone)
 
         self.loss_fn = self.cfg.training.loss_class.get(
             self.cfg.training.loss_function
@@ -156,129 +267,13 @@ class Model(nn.Module):
             self.value_head = ValueHead(self.backbone_config)
             self.value_head.summary.bias.data.zero_()
 
-    def prepare_lora(self, cfg, backbone):
-        target_modules = (
-            [
-                lora_target_module.strip()
-                for lora_target_module in cfg.training.lora_target_modules.strip().split(  # noqa: E501
-                    ","
-                )
-            ]
-            if cfg.training.lora_target_modules
-            else None
-        )
-        if (
-            not target_modules
-            and backbone.config.model_type
-            not in TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING
-        ):
-            # extend LORA automatic target module mapping.
-            target_modules = {
-                "RefinedWebModel": [
-                    "query_key_value",
-                    "dense_h_to_4h",
-                    "dense_4h_to_h",
-                    "dense",
-                ],
-            }.get(backbone.config.model_type)
-        lora_config = LoraConfig(
-            r=cfg.training.lora_r,
-            lora_alpha=cfg.training.lora_alpha,
-            target_modules=target_modules,
-            lora_dropout=cfg.training.lora_dropout,
-            bias="none",
-            task_type="CAUSAL_LM",
-        )
-        if cfg.architecture.gradient_checkpointing:
-            backbone.enable_input_require_grads()
-        backbone = get_peft_model(self.backbone, lora_config)
-        backbone.print_trainable_parameters()
-        return backbone
-
     def generate(self, batch: Dict, cfg: Any, streamer=None):
-        mask_key = "prompt_attention_mask"
-        pad_keys = [
-            "prompt_input_ids",
-            "prompt_attention_mask",
-        ]
-
-        batch = batch_padding(
-            self.cfg,
-            batch,
-            self.training,
-            mask_key=mask_key,
-            pad_keys=pad_keys,
-        )
-
-        input_ids = batch["prompt_input_ids"]
-        attention_mask = batch["prompt_attention_mask"]
-
-        # Adding GenerationMixin type annotation for faster lookup
-        generation_function: GenerationMixin.generate = self.backbone.generate
-
-        verbosity = transformers_logging.get_verbosity()
-        stopping_criteria = StoppingCriteriaList(
-            [
-                TokenStoppingCriteria(
-                    stop_word_ids=self.cfg.tokenizer._stop_words_ids,
-                    prompt_input_ids_len=input_ids.shape[1],
-                )
-            ]
-        )
-
-        # The KL-div estimation assumes sampling and specific settings
-        if self.training and cfg.training.use_rlhf:
-            do_sample = True
-            temperature = cfg.training.ppo_generate_temperature
-            top_k = 0.0
-            top_p = 1.0
-            repetition_penalty = 1.0
-        else:
-            do_sample = cfg.prediction.do_sample
-            temperature = float(cfg.prediction.temperature)
-            top_k = cfg.prediction.top_k
-            top_p = float(cfg.prediction.top_p)
-            repetition_penalty = float(cfg.prediction.repetition_penalty)
-
-        # force to use cache and disable gradient checkpointing if enabled
-        self.backbone.config.use_cache = True
-        if self.cfg.architecture.gradient_checkpointing:
-            self.backbone.gradient_checkpointing_disable()
-
-        transformers_logging.set_verbosity_error()
-        output = generation_function(
-            inputs=input_ids,
-            attention_mask=attention_mask,
-            generation_config=self.backbone.generation_config,
-            min_new_tokens=cfg.prediction.min_length_inference,
-            max_new_tokens=cfg.prediction.max_length_inference,
-            do_sample=do_sample,
-            num_beams=cfg.prediction.num_beams,
-            temperature=temperature,
-            repetition_penalty=repetition_penalty,
-            top_k=top_k,
-            top_p=top_p,
-            stopping_criteria=stopping_criteria,
-            renormalize_logits=True,
-            return_dict_in_generate=False,
-            use_cache=True,
-            streamer=streamer,
-        )
-        transformers_logging.set_verbosity(verbosity)
-
-        # enable checkpointing again
-        if self.cfg.architecture.gradient_checkpointing:
-            self.backbone.gradient_checkpointing_enable()
-
-        # remove the prompt tokens
-        output = output[:, input_ids.shape[1] :]
-
-        return output
+        return generate_text(self.backbone, batch, cfg, streamer, self.training)
 
     def forward(
-        self,
-        batch: Dict,
-        padding: bool = True,
+            self,
+            batch: Dict,
+            padding: bool = True,
     ) -> Dict:
         # disable cache if gradient checkpointing is enabled
         if self.cfg.architecture.gradient_checkpointing:
