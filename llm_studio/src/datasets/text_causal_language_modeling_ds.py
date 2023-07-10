@@ -338,7 +338,7 @@ class CustomDataset(Dataset):
 
         sample = dict()
         system_encoding, prompt_encoding, answer_encoding = self._get_sample_encoding(
-            idx
+            idx, True
         )
         rlhf_is_in_training_mode = self.cfg.training.use_rlhf and self.mode == "train"
 
@@ -382,9 +382,9 @@ class CustomDataset(Dataset):
                     ]
                 ).to(torch.bool)
                 labels.masked_fill_(prompt_mask, -100)
-            if self.cfg.dataset.add_eos_token_to_answer:
-                # eos_token may be equal to pad_token. Add the label back manually.
-                labels[-1] = self.tokenizer.eos_token_id
+            #if self.cfg.dataset.add_eos_token_to_answer:
+            # eos_token may be equal to pad_token. Add the label back manually.
+            labels[-1] = self.tokenizer.eos_token_id
 
             if self.cfg.tokenizer.max_length < len(input_ids):
                 labels = labels[-self.cfg.tokenizer.max_length :]
@@ -427,7 +427,7 @@ class CustomDataset(Dataset):
 
         return sample
 
-    def _get_sample_encoding(self, idx) -> List:
+    def _get_sample_encoding(self, idx, leaf=False) -> List:
         if self.systems is not None:
             system = self.systems[idx]
             system_encoding = self.encode(
@@ -441,14 +441,14 @@ class CustomDataset(Dataset):
         prompt_encoding = self.encode(
             self.tokenizer, prompt, self.cfg.tokenizer.max_length_prompt, "left"
         )["input_ids"]
-        if self.cfg.dataset.add_eos_token_to_answer:
+        if self.cfg.dataset.add_eos_token_to_answer or leaf:
             max_length_answer = self.cfg.tokenizer.max_length_answer - 1
         else:
             max_length_answer = self.cfg.tokenizer.max_length_answer
         answer_encoding = self.encode(
             self.tokenizer, answer, max_length_answer, "right"
         )["input_ids"]
-        if self.cfg.dataset.add_eos_token_to_answer:
+        if self.cfg.dataset.add_eos_token_to_answer or leaf:
             answer_encoding = torch.cat(
                 [
                     answer_encoding,
