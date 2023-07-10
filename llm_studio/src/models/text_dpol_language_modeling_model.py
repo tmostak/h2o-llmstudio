@@ -5,118 +5,16 @@ import torch
 from peft import LoraConfig, get_peft_model
 from peft.utils import TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING
 from torch import nn
-from transformers import AutoModelForCausalLM, StoppingCriteria, StoppingCriteriaList
+from transformers import AutoModelForCausalLM, StoppingCriteriaList
 from transformers.generation.utils import GenerationMixin
 from transformers.utils import logging as transformers_logging
 
 from llm_studio.src.metrics.text_causal_language_modeling_metrics import Perplexity
+from llm_studio.src.models.text_causal_language_modeling_model import TokenStoppingCriteria
 from llm_studio.src.utils.data_utils import batch_padding
 from llm_studio.src.utils.modeling_utils import create_nlp_backbone
 
 logger = logging.getLogger(__name__)
-
-
-class ValueHead(nn.Module):
-    """
-    The ValueHead class implements a head for GPT2 that returns a scalar for each
-    output token.
-
-    Based on the implementation of trl library:
-    https://github.com/lvwerra/trl/blob/main/trl/models/modeling_value_head.py
-    """
-
-    def __init__(self, config):
-        super().__init__()
-        if not hasattr(config, "summary_dropout_prob"):
-            summary_dropout_prob = 0.1
-        else:
-            summary_dropout_prob = config.summary_dropout_prob
-
-        self.dropout = (
-            nn.Dropout(summary_dropout_prob) if summary_dropout_prob else nn.Identity()
-        )
-
-        # some models such as OPT have a projection layer before the word embeddings
-        # e.g. OPT-350m
-        if hasattr(config, "word_embed_proj_dim"):
-            hidden_size = config.word_embed_proj_dim
-        else:
-            hidden_size = config.hidden_size
-
-        self.summary = nn.Linear(hidden_size, 1)
-
-    def forward(self, hidden_states):
-        output = self.dropout(hidden_states)
-
-        # For now force upcast in fp32 if needed. Let's keep the
-        # output in fp32 for numerical stability.
-        if output.dtype != self.summary.weight.dtype:
-            output = output.to(self.summary.weight.dtype)
-
-        output = self.summary(output)
-        return output
-
-
-class TokenStoppingCriteria(StoppingCriteria):
-    """
-    Stopping criteria based on tokens.
-    Will stop generation when each generated sample contains at least one of the
-    stop_word_ids.
-    """
-
-    def __init__(self, stop_word_ids, prompt_input_ids_len):
-        super().__init__()
-        self.prompt_input_ids_len = prompt_input_ids_len
-        if stop_word_ids is None:
-            stop_word_ids = []
-        self.stop_word_ids = stop_word_ids
-
-    def should_stop(
-        self,
-        generated_ids: torch.Tensor,
-        stop_word_id: torch.Tensor,
-    ):
-        if len(stop_word_id.shape) == 0:
-            return (
-                torch.mean(((generated_ids == stop_word_id).sum(1) > 0).float()) == 1
-            ).item()
-        else:
-            return (
-                self.get_num_vector_found_in_matrix_rows(stop_word_id, generated_ids)
-                == generated_ids.shape[0]
-            )
-
-    @staticmethod
-    def get_num_vector_found_in_matrix_rows(vector, matrix):
-        """
-        Count the number of times a vector is found in a matrix row.
-        If the vector is found in a row, the search stops and the next row is searched.
-        """
-        assert len(vector.shape) == 1
-        assert len(matrix.shape) == 2
-
-        found = 0
-        for row in matrix:
-            # stride through the vector
-            for i in range(len(row) - len(vector) + 1):
-                # check if the vector contains the tensor
-                if torch.all(row[i : i + len(vector)] == vector):
-                    found += 1
-                    break
-
-        return found
-
-    def __call__(self, input_ids: torch.Tensor, scores: torch.FloatTensor, **kwargs):
-        generated_ids: torch.Tensor = input_ids[:, self.prompt_input_ids_len :]
-        for stop_word_id in self.stop_word_ids:
-            if self.should_stop(generated_ids, stop_word_id.to(generated_ids.device)):
-                if generated_ids.shape[1] == 1:
-                    logger.warning(
-                        f"Stopping criteria triggered for {stop_word_id} at first "
-                        "generated token."
-                    )
-                return True
-        return False
 
 
 class Model(nn.Module):
@@ -143,7 +41,7 @@ class Model(nn.Module):
         )
 
         if cfg.training.lora:
-            self.backbone = self.prepare_lora(cfg=cfg, backbone=self.backbone)
+            self.prepare_lora()
 
         self.loss_fn = self.cfg.training.loss_class.get(
             self.cfg.training.loss_function
@@ -152,25 +50,21 @@ class Model(nn.Module):
         if self.cfg.prediction.metric == "Perplexity":
             self.perplexity = Perplexity(self.cfg, reduce=False)
 
-        if self.cfg.training.use_rlhf:
-            self.value_head = ValueHead(self.backbone_config)
-            self.value_head.summary.bias.data.zero_()
-
-    def prepare_lora(self, cfg, backbone):
+    def prepare_lora(self):
         target_modules = (
             [
                 lora_target_module.strip()
-                for lora_target_module in cfg.training.lora_target_modules.strip().split(  # noqa: E501
-                    ","
-                )
+                for lora_target_module in self.cfg.training.lora_target_modules.strip().split(  # noqa: E501
+                ","
+            )
             ]
-            if cfg.training.lora_target_modules
+            if self.cfg.training.lora_target_modules
             else None
         )
         if (
-            not target_modules
-            and backbone.config.model_type
-            not in TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING
+                not target_modules
+                and self.backbone.config.model_type
+                not in TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING
         ):
             # extend LORA automatic target module mapping.
             target_modules = {
@@ -180,20 +74,26 @@ class Model(nn.Module):
                     "dense_4h_to_h",
                     "dense",
                 ],
-            }.get(backbone.config.model_type)
+            }.get(self.backbone.config.model_type)
         lora_config = LoraConfig(
-            r=cfg.training.lora_r,
-            lora_alpha=cfg.training.lora_alpha,
+            r=self.cfg.training.lora_r,
+            lora_alpha=self.cfg.training.lora_alpha,
             target_modules=target_modules,
-            lora_dropout=cfg.training.lora_dropout,
+            lora_dropout=self.cfg.training.lora_dropout,
             bias="none",
             task_type="CAUSAL_LM",
         )
-        if cfg.architecture.gradient_checkpointing:
-            backbone.enable_input_require_grads()
-        backbone = get_peft_model(self.backbone, lora_config)
-        backbone.print_trainable_parameters()
-        return backbone
+        if self.cfg.architecture.gradient_checkpointing:
+            self.backbone.enable_input_require_grads()
+        self.backbone = get_peft_model(self.backbone, lora_config)
+        self.backbone.print_trainable_parameters()
+
+        self.loss_fn = self.cfg.training.loss_class.get(
+            self.cfg.training.loss_function
+        )(self.cfg)
+
+        if self.cfg.prediction.metric == "Perplexity":
+            self.perplexity = Perplexity(self.cfg, reduce=False)
 
     def generate(self, batch: Dict, cfg: Any, streamer=None):
         mask_key = "prompt_attention_mask"
@@ -226,20 +126,6 @@ class Model(nn.Module):
             ]
         )
 
-        # The KL-div estimation assumes sampling and specific settings
-        if self.training and cfg.training.use_rlhf:
-            do_sample = True
-            temperature = cfg.training.ppo_generate_temperature
-            top_k = 0.0
-            top_p = 1.0
-            repetition_penalty = 1.0
-        else:
-            do_sample = cfg.prediction.do_sample
-            temperature = float(cfg.prediction.temperature)
-            top_k = cfg.prediction.top_k
-            top_p = float(cfg.prediction.top_p)
-            repetition_penalty = float(cfg.prediction.repetition_penalty)
-
         # force to use cache and disable gradient checkpointing if enabled
         self.backbone.config.use_cache = True
         if self.cfg.architecture.gradient_checkpointing:
@@ -252,12 +138,12 @@ class Model(nn.Module):
             generation_config=self.backbone.generation_config,
             min_new_tokens=cfg.prediction.min_length_inference,
             max_new_tokens=cfg.prediction.max_length_inference,
-            do_sample=do_sample,
+            do_sample=cfg.prediction.do_sample,
             num_beams=cfg.prediction.num_beams,
-            temperature=temperature,
-            repetition_penalty=repetition_penalty,
-            top_k=top_k,
-            top_p=top_p,
+            temperature=(float(cfg.prediction.temperature)),
+            repetition_penalty=(float(cfg.prediction.repetition_penalty)),
+            top_k=cfg.prediction.top_k,
+            top_p=float(cfg.prediction.top_p),
             stopping_criteria=stopping_criteria,
             renormalize_logits=True,
             return_dict_in_generate=False,
@@ -271,14 +157,14 @@ class Model(nn.Module):
             self.backbone.gradient_checkpointing_enable()
 
         # remove the prompt tokens
-        output = output[:, input_ids.shape[1] :]
+        output = output[:, input_ids.shape[1]:]
 
         return output
 
     def forward(
-        self,
-        batch: Dict,
-        padding: bool = True,
+            self,
+            batch: Dict,
+            padding: bool = True,
     ) -> Dict:
         # disable cache if gradient checkpointing is enabled
         if self.cfg.architecture.gradient_checkpointing:
