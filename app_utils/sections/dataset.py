@@ -396,7 +396,9 @@ async def dataset_import(
                             ]
                             max_substring_len = len(problem_type_name)
             if q.client["dataset/import/cfg_file"] is None:
-                q.client["dataset/import/cfg_file"] = "text_causal_language_modeling_config"
+                q.client[
+                    "dataset/import/cfg_file"
+                ] = "text_causal_language_modeling_config"
                 q.client["dataset/import/cfg_category"] = q.client[  # type: ignore
                     "dataset/import/cfg_file"
                 ].split("_")[0]

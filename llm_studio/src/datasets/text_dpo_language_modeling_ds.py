@@ -86,5 +86,20 @@ class CustomDataset(LLMCustomDataset):
     @classmethod
     def sanity_check(cls, df: pd.DataFrame, cfg: Any, mode: str = "train"):
         if cfg.dataset.parent_id_column:
-            assert df.loc[df[cfg.dataset.parent_id_column], cfg.dataset.chosen_response_column].isna().mean() == 1
-            assert df.loc[df[cfg.dataset.parent_id_column], cfg.dataset.rejected_response_column].isna().mean() == 1
+            assert (
+                df.loc[
+                    df[cfg.dataset.parent_id_column], cfg.dataset.chosen_response_column
+                ]
+                .isna()
+                .mean()
+                == 1
+            )
+            assert (
+                df.loc[
+                    df[cfg.dataset.parent_id_column],
+                    cfg.dataset.rejected_response_column,
+                ]
+                .isna()
+                .mean()
+                == 1
+            )

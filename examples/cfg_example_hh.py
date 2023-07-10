@@ -1,11 +1,17 @@
 from dataclasses import dataclass
 
-from llm_studio.python_configs.text_causal_language_modeling_config import ConfigNLPCausalLMTokenizer, \
-    ConfigNLPAugmentation, ConfigNLPCausalLMPrediction, ConfigNLPCausalLMEnvironment, ConfigNLPCausalLMLogging
+from llm_studio.python_configs.text_causal_language_modeling_config import (
+    ConfigNLPAugmentation,
+    ConfigNLPCausalLMEnvironment,
+    ConfigNLPCausalLMLogging,
+    ConfigNLPCausalLMPrediction,
+    ConfigNLPCausalLMTokenizer,
+)
 from llm_studio.python_configs.text_dpo_language_modeling_config import (
     ConfigDPOCausalLMArchitecture,
+    ConfigDPOCausalLMTraining,
     ConfigNLPDPOLMDataset,
-    ConfigProblemBase, ConfigDPOCausalLMTraining,
+    ConfigProblemBase,
 )
 
 """

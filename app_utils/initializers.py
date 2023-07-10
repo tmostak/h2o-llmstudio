@@ -20,7 +20,8 @@ from .utils import (
     get_user_db_path,
     get_user_name,
     load_user_settings,
-    prepare_oasst1_dataset, prepare_hh_rlhf_dataset,
+    prepare_hh_rlhf_dataset,
+    prepare_oasst1_dataset,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,15 +76,25 @@ def prepare_hh_dataset(q):
     if os.path.exists(path):
         shutil.rmtree(path)
     os.makedirs(path, exist_ok=True)
-    df = prepare_hh_rlhf_dataset(path)
+    train_df = prepare_hh_rlhf_dataset("train")
+    train_df.to_parquet(os.path.join(path, "train.pq"), index=False)
+
+    valid_df = prepare_hh_rlhf_dataset("valid")
+    valid_df.to_parquet(os.path.join(path, "valid.pq"), index=False)
+
     cfg = load_config_py(
         config_path="llm_studio/python_configs/text_dpo_language_modeling_config",
         config_name="ConfigProblemBase",
     )
-    cfg.dataset.train_dataframe = os.path.join(path, "train_full.pq")
+    cfg.dataset.train_dataframe = os.path.join(path, "train.pq")
+    cfg.dataset.valid_dataframe = os.path.join(path, "valid.pq")
+
     cfg.dataset.prompt_column = ("instruction",)
     cfg.dataset.answer_column = "output"
-    cfg.dataset.parent_id_column = "None"
+    cfg.dataset.parent_id_column = "parent_id"
+    cfg.dataset.chosen_response_column = "chosen_response"
+    cfg.dataset.rejected_response_column = "rejected_response"
+
     cfg_path = os.path.join(path, "text_dpo_language_modeling_config.yaml")
     save_config_yaml(cfg_path, cfg)
     dataset = Dataset(
@@ -91,7 +102,8 @@ def prepare_hh_dataset(q):
         name="hh_dpo",
         path=path,
         config_file=cfg_path,
-        train_rows=df.shape[0],
+        train_rows=train_df.shape[0],
+        validation_rows=valid_df.shape[0],
     )
     return dataset
 
