@@ -49,8 +49,7 @@ class CustomDataset(LLMCustomDataset):
             cfg: config with all the hyperparameters
             mode: dataset mode. One of {"train", "validation"}
         """
-        # TODO: hardcode
-        assert cfg.dataset.limit_chained_samples
+        assert cfg.dataset.limit_chained_samples, "Need to enable limit_chained_samples for dpo training"
 
         super().__init__(df=df, cfg=cfg, mode=mode)
         self.chosen_answers = (
@@ -74,32 +73,11 @@ class CustomDataset(LLMCustomDataset):
             text=self.chosen_answers[idx],
             max_length=self.cfg.tokenizer.max_length_answer,
             truncation_side="right",
-        )
+        )["input_ids"]
         sample["rejected_answer_ids"] = self.encode(
             self.tokenizer,
             text=self.rejected_answer[idx],
             max_length=self.cfg.tokenizer.max_length_answer,
             truncation_side="right",
-        )
+        )["input_ids"]
         return sample
-
-    @classmethod
-    def sanity_check(cls, df: pd.DataFrame, cfg: Any, mode: str = "train"):
-        if cfg.dataset.parent_id_column:
-            assert (
-                df.loc[
-                    df[cfg.dataset.parent_id_column], cfg.dataset.chosen_response_column
-                ]
-                .isna()
-                .mean()
-                == 1
-            )
-            assert (
-                df.loc[
-                    df[cfg.dataset.parent_id_column],
-                    cfg.dataset.rejected_response_column,
-                ]
-                .isna()
-                .mean()
-                == 1
-            )
