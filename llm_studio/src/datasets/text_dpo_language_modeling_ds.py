@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+import torch
 
 from llm_studio.src.datasets.text_causal_language_modeling_ds import (
     CustomDataset as LLMCustomDataset,
@@ -67,19 +68,43 @@ class CustomDataset(LLMCustomDataset):
         """Reads a single text observation."""
         sample = super().__getitem__(idx)
         sample.pop("reward_model_prompt_text", None)
-        sample.pop("reward_model_prompt_text", None)
+        sample.pop("labels", None)
 
         idx = self.indices[idx]
-        sample["chosen_answer_ids"] = self.encode(
-            self.tokenizer,
-            text=self.chosen_answers[idx],
-            max_length=self.cfg.tokenizer.max_length_answer,
-            truncation_side="right",
-        )["input_ids"]
-        sample["rejected_answer_ids"] = self.encode(
-            self.tokenizer,
-            text=self.rejected_answer[idx],
-            max_length=self.cfg.tokenizer.max_length_answer,
-            truncation_side="right",
-        )["input_ids"]
+
+        for prefix, text in [("chosen_", self.chosen_answers[idx]),
+                             ("rejected_", self.rejected_answer[idx])
+                             ]:
+            answer_encoding = self.encode(
+                self.tokenizer,
+                text=text,
+                max_length=self.cfg.tokenizer.max_length_answer - int(self.cfg.dataset.add_eos_token_to_answer is True),
+                truncation_side="right",
+            )["input_ids"]
+            if self.cfg.dataset.add_eos_token_to_answer:
+                answer_encoding = torch.cat(
+                    [
+                        answer_encoding,
+                        torch.Tensor([self.tokenizer.eos_token_id]),
+                    ],
+                    dim=0,
+                )
+
+            input_ids = torch.cat(
+                [
+                    sample["input_ids"],
+                    answer_encoding,
+                ],
+                dim=0,
+            )
+            sample.update(
+                self.pad_tokens(
+                    input_ids,
+                    attention_mask=torch.ones_like(input_ids),
+                    max_length=self.cfg.tokenizer.max_length,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    prefix=prefix
+                )
+            )
+
         return sample
