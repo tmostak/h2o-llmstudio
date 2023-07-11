@@ -10,9 +10,13 @@ from transformers.generation.utils import GenerationMixin
 from transformers.utils import logging as transformers_logging
 
 from llm_studio.src.metrics.text_causal_language_modeling_metrics import Perplexity
-from llm_studio.src.models.text_causal_language_modeling_model import TokenStoppingCriteria, prepare_lora, generate_text
 from llm_studio.src.utils.data_utils import batch_padding
-from llm_studio.src.utils.modeling_utils import create_nlp_backbone
+from llm_studio.src.utils.modeling_utils import (
+    TokenStoppingCriteria,
+    create_nlp_backbone,
+    generate_text,
+    prepare_lora,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +52,9 @@ class Model(nn.Module):
         return generate_text(self.backbone, batch, cfg, streamer, self.training)
 
     def forward(
-            self,
-            batch: Dict,
-            padding: bool = True,
+        self,
+        batch: Dict,
+        padding: bool = True,
     ) -> Dict:
         # disable cache if gradient checkpointing is enabled
         if self.cfg.architecture.gradient_checkpointing:

@@ -82,7 +82,10 @@ def add_hh_dpo_dataset(q):
     valid_df = prepare_hh_rlhf_dataset("test")
     valid_df.to_parquet(os.path.join(path, "valid.pq"), index=False)
 
-    from llm_studio.python_configs.text_dpo_language_modeling_config import ConfigProblemBase
+    from llm_studio.python_configs.text_dpo_language_modeling_config import (
+        ConfigProblemBase,
+    )
+
     cfg: ConfigProblemBase = load_config_py(
         config_path="llm_studio/python_configs/text_dpo_language_modeling_config",
         config_name="ConfigProblemBase",

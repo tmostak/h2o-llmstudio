@@ -17,7 +17,7 @@ from llm_studio.src.nesting import Dependency
 from llm_studio.src.optimizers import Optimizers
 from llm_studio.src.plots import text_causal_language_modeling_plots
 from llm_studio.src.schedulers import Schedulers
-from llm_studio.src.utils.modeling_utils import generate_experiment_name
+from llm_studio.src.utils.training_utils import generate_experiment_name
 
 
 @dataclass

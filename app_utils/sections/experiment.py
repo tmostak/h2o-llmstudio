@@ -58,7 +58,10 @@ from llm_studio.src.utils.export_utils import (
     save_prediction_outputs,
 )
 from llm_studio.src.utils.logging_utils import write_flag
-from llm_studio.src.utils.modeling_utils import check_disk_space, unwrap_model
+from llm_studio.src.utils.modeling_utils import (
+    check_disk_space_for_model_saving,
+    unwrap_model,
+)
 from llm_studio.src.utils.utils import add_file_to_zip, kill_child_processes
 
 logger = logging.getLogger(__name__)
@@ -1565,7 +1568,7 @@ async def experiment_push_to_huggingface_dialog(q: Q, error: str = ""):
             device=q.client["experiment/display/push_to_huggingface/device"],
         )
 
-        check_disk_space(model.backbone, "./")
+        check_disk_space_for_model_saving(model.backbone, "./")
 
         huggingface_hub.login(
             q.client["experiment/display/push_to_huggingface/api_key"]

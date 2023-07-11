@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Type
 
 import yaml
 
-from llm_studio.src.utils.modeling_utils import generate_experiment_name
+from llm_studio.src.utils.training_utils import generate_experiment_name
 from llm_studio.src.utils.type_annotations import KNOWN_TYPE_ANNOTATIONS
 
 

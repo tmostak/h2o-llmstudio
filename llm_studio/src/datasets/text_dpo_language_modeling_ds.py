@@ -49,7 +49,9 @@ class CustomDataset(LLMCustomDataset):
             cfg: config with all the hyperparameters
             mode: dataset mode. One of {"train", "validation"}
         """
-        assert cfg.dataset.limit_chained_samples, "Need to enable limit_chained_samples for dpo training"
+        assert (
+            cfg.dataset.limit_chained_samples
+        ), "Need to enable limit_chained_samples for dpo training"
 
         super().__init__(df=df, cfg=cfg, mode=mode)
         self.chosen_answers = (

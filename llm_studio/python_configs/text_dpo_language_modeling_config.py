@@ -17,7 +17,7 @@ from llm_studio.python_configs.text_causal_language_modeling_config import (
 from llm_studio.src import possible_values
 from llm_studio.src.losses import text_causal_language_modeling_losses
 from llm_studio.src.models import text_causal_language_modeling_model
-from llm_studio.src.utils.modeling_utils import generate_experiment_name
+from llm_studio.src.utils.training_utils import generate_experiment_name
 
 
 @dataclass

@@ -49,17 +49,19 @@ from llm_studio.src.utils.logging_utils import (
     write_flag,
 )
 from llm_studio.src.utils.modeling_utils import (
-    check_disk_space,
+    check_disk_space_for_model_saving,
+    load_checkpoint,
+    unwrap_model,
+    wrap_model_distributed,
+)
+from llm_studio.src.utils.training_utils import (
     get_number_of_validation_epochs,
     get_optimizer,
     get_scheduler,
-    load_checkpoint,
     reduce_metric,
     run_inference,
     save_checkpoint,
     save_predictions,
-    unwrap_model,
-    wrap_model_distributed,
 )
 from llm_studio.src.utils.utils import kill_ddp_processes, set_environment, set_seed
 
@@ -592,7 +594,7 @@ def run(cfg: Any) -> None:
     # Prepare model
     with torch.device(cfg.environment._device):
         model = cfg.architecture.model_class(cfg)
-        check_disk_space(model, cfg.output_directory)
+        check_disk_space_for_model_saving(model, cfg.output_directory)
 
         if cfg.training.use_rlhf:
             logger.info("Using RLHF - Loading reward model")
