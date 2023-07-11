@@ -54,6 +54,7 @@ class CustomDataset(LLMCustomDataset):
         assert (
             cfg.dataset.limit_chained_samples
         ), "Need to enable limit_chained_samples for dpo training"
+        assert not cfg.dataset.mask_prompt_labels
         df = df.copy()
         df.loc[~df["chosen_response"].isna(), "output"] = df.loc[~df["chosen_response"].isna(), "chosen_response"]
         super().__init__(df=df, cfg=cfg, mode=mode)

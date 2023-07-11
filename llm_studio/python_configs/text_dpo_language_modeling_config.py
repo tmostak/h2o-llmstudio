@@ -26,6 +26,7 @@ class ConfigNLPDPOLMDataset(ConfigNLPCausalLMDataset):
         llm_studio.src.datasets.text_dpo_language_modeling_ds.CustomDataset
     )
     limit_chained_samples: bool = True
+    mask_prompt_labels: bool = False
 
     chosen_response_column: str = "chosen_response"
     rejected_response_column: str = "rejected_response"
@@ -33,6 +34,8 @@ class ConfigNLPDPOLMDataset(ConfigNLPCausalLMDataset):
     def __post_init__(self):
         super().__post_init__()
         self._visibility["limit_chained_samples"] = -1
+        self._visibility["mask_prompt_labels"] = -1
+
         self._order.insert("chosen_response_column", after="answer_column")
         self._order.insert("rejected_response_column", after="chosen_response_column")
 
