@@ -90,15 +90,20 @@ class CustomDataset(LLMCustomDataset):
                     dim=0,
                 )
 
+            max_prompt_length = self.cfg.tokenizer.max_length - len(answer_encoding)
+            assert max_prompt_length >= 0, "Max Length Answer needs to be smaller than Max Length!"
+            prompt_input_ids = sample["input_ids"][-max_prompt_length:]
             input_ids = torch.cat(
                 [
-                    sample["input_ids"],
+                    prompt_input_ids,
                     answer_encoding,
                 ],
                 dim=0,
             )
+            sample[f"{prefix}_prompt_mask"] = torch.cat([torch.ones(len(prompt_input_ids)),
+                                                         torch.zeros(len(answer_encoding))])
             sample.update(
-                self.pad_tokens(
+                self.left_pad_tokens(
                     input_ids,
                     attention_mask=torch.ones_like(input_ids),
                     max_length=self.cfg.tokenizer.max_length,

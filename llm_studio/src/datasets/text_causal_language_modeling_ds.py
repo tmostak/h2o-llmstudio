@@ -394,7 +394,7 @@ class CustomDataset(Dataset):
             sample["labels"][-len(labels) :] = labels
 
         sample.update(
-            self.pad_tokens(
+            self.left_pad_tokens(
                 input_ids,
                 attention_mask=torch.ones_like(input_ids),
                 max_length=self.cfg.tokenizer.max_length,
@@ -408,7 +408,7 @@ class CustomDataset(Dataset):
         prompt_attention_mask = torch.ones_like(prompt_input_ids)
 
         sample.update(
-            self.pad_tokens(
+            self.left_pad_tokens(
                 prompt_input_ids,
                 attention_mask=prompt_attention_mask,
                 max_length=self.cfg.tokenizer.max_length_prompt,
@@ -495,7 +495,7 @@ class CustomDataset(Dataset):
 
         return parent_encodings, reward_model_parent_prompt_text
 
-    def pad_tokens(
+    def left_pad_tokens(
         self,
         input_ids,
         attention_mask,
