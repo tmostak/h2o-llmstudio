@@ -10,7 +10,7 @@ from llm_studio.src.utils.data_utils import batch_padding
 from llm_studio.src.utils.modeling_utils import (
     create_nlp_backbone,
     generate_text,
-    prepare_lora,
+    prepare_lora, unwrap_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,9 +47,9 @@ class Model(nn.Module):
         return generate_text(self.backbone, batch, cfg, streamer, self.training)
 
     def forward(
-        self,
-        batch: Dict,
-        padding: bool = True,
+            self,
+            batch: Dict,
+            padding: bool = True,
     ) -> Dict:
         # disable cache if gradient checkpointing is enabled
         if self.cfg.architecture.gradient_checkpointing:
@@ -57,33 +57,33 @@ class Model(nn.Module):
 
         outputs: Dict = {}
 
-        for answer in ["rejected", ""]
+        for answer in ["rejected", "chosen"]:
+            if padding:
+                batch = batch_padding(
+                    self.cfg,
+                    batch,
+                    self.training,
+                    mask_key=f"{answer}attention_mask",
+                    pad_keys=[
+                        f"{answer}_input_ids",
+                        f"{answer}_attention_mask",
+                        f"{answer}_special_tokens_mask",
+                        f"{answer}_labels",
+                    ],
+                )
+            logits = self.backbone(
+                input_ids=batch[f"{answer}_input_ids"],
+                attention_mask=batch[f"{answer}_attention_mask"],
+            ).logits
+            with self.backbone.disable_adapter():
+                reference_logits = self.backbone(
+                    input_ids=batch[f"{answer}_input_ids"],
+                    attention_mask=batch[f"{answer}_attention_mask"],
+                ).logits
 
-        if padding:
-            batch = batch_padding(
-                self.cfg,
-                batch,
-                self.training,
-                mask_key="attention_mask",
-                pad_keys=[
-                    "input_ids",
-                    "attention_mask",
-                    "special_tokens_mask",
-                    "labels",
-                ],
-            )
-
-        output = self.backbone(
-            input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-        )
-
-        if "labels" in batch:
+        if f"{answer}_labels" in batch:
             loss = self.loss_fn(output.logits, batch["labels"])
             outputs["loss"] = loss
-
-        if self.cfg.prediction.metric == "Perplexity":
-            outputs["perplexity"] = self.perplexity(output.logits, batch["labels"])
 
         # enable cache again if gradient checkpointing is enabled
         if self.cfg.architecture.gradient_checkpointing:
