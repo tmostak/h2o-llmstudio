@@ -10,7 +10,8 @@ from llm_studio.src.utils.data_utils import batch_padding
 from llm_studio.src.utils.modeling_utils import (
     create_nlp_backbone,
     generate_text,
-    prepare_lora, unwrap_model,
+    prepare_lora,
+    unwrap_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,9 +48,9 @@ class Model(nn.Module):
         return generate_text(self.backbone, batch, cfg, streamer, self.training)
 
     def forward(
-            self,
-            batch: Dict,
-            padding: bool = True,
+        self,
+        batch: Dict,
+        padding: bool = True,
     ) -> Dict:
         # disable cache if gradient checkpointing is enabled
         if self.cfg.architecture.gradient_checkpointing:

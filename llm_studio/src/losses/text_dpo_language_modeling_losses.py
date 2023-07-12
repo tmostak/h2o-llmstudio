@@ -2,8 +2,8 @@ import logging
 from typing import Any, KeysView, Tuple
 
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 __all__ = ["Losses"]
 
@@ -15,13 +15,15 @@ class DPOLoss(nn.Module):
         super().__init__()
         self.cfg = cfg
 
-    def forward(self,
-                policy_chosen_logps: torch.FloatTensor,
-                policy_rejected_logps: torch.FloatTensor,
-                reference_chosen_logps: torch.FloatTensor,
-                reference_rejected_logps: torch.FloatTensor,
-                beta: float,
-                reference_free: bool = False) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+    def forward(
+        self,
+        policy_chosen_logps: torch.FloatTensor,
+        policy_rejected_logps: torch.FloatTensor,
+        reference_chosen_logps: torch.FloatTensor,
+        reference_rejected_logps: torch.FloatTensor,
+        beta: float,
+        reference_free: bool = False,
+    ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         """Compute the DPO loss for a batch of policy and reference model log probabilities.
 
         Args:
@@ -47,13 +49,16 @@ class DPOLoss(nn.Module):
 
         losses = -F.logsigmoid(beta * logits)
         chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
-        rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
+        rejected_rewards = (
+            beta * (policy_rejected_logps - reference_rejected_logps).detach()
+        )
 
         return losses, chosen_rewards, rejected_rewards
 
 
-def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor,
-                     average_log_prob: bool = False) -> torch.FloatTensor:
+def _get_batch_logps(
+    logits: torch.FloatTensor, labels: torch.LongTensor, average_log_prob: bool = False
+) -> torch.FloatTensor:
     """Compute the log probabilities of the given labels under the given logits.
 
     Args:
@@ -68,12 +73,14 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor,
 
     labels = labels[:, 1:].clone()
     logits = logits[:, :-1, :]
-    loss_mask = (labels != -100)
+    loss_mask = labels != -100
 
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == -100] = 0
 
-    per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
+    per_token_logps = torch.gather(
+        logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)
+    ).squeeze(2)
 
     if average_log_prob:
         return (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)

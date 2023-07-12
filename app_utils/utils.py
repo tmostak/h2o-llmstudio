@@ -2003,6 +2003,10 @@ def prepare_hh_rlhf_dataset(split: str) -> pd.DataFrame:
     dfs = []
     for row in tqdm(dataset):
         prompt, chosen_response, rejected_response = _parse_row(row)
+        if len(rejected_response) == 0:
+            # remove rejected answers that are empty
+            continue
+
         parent_uuid = None
         parsed_texts = []
         for human_text, assistant_text in _split_up_prompt(prompt):

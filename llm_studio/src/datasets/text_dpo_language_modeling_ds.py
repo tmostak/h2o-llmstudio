@@ -1,5 +1,4 @@
 import logging
-from copy import copy
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
@@ -54,26 +53,102 @@ class CustomDataset(LLMCustomDataset):
         assert (
             cfg.dataset.limit_chained_samples
         ), "Need to enable limit_chained_samples for dpo training"
-        assert not cfg.dataset.mask_prompt_labels
-        df = df.copy()
-        df.loc[~df["chosen_response"].isna(), "output"] = df.loc[~df["chosen_response"].isna(), "chosen_response"]
+
         super().__init__(df=df, cfg=cfg, mode=mode)
-        self.chosen_answers = self.answers
-        df.loc[~df["rejected_response"].isna(), "output"] = df.loc[~df["rejected_response"].isna(), "rejected_response"]
-        super().__init__(df=df, cfg=cfg, mode=mode)
-        self.rejected_answer = self.answers
-        self.original_answers = copy(self.answers)
+        self.chosen_answers = (
+            self.df[self.cfg.dataset.chosen_response_column].astype(str).values.tolist()
+        )
+        self.rejected_answer = (
+            self.df[self.cfg.dataset.rejected_response_column]
+            .astype(str)
+            .values.tolist()
+        )
 
     def __getitem__(self, idx: int) -> Dict:
         """Reads a single text observation."""
-        self.answers = self.chosen_answers
         sample = super().__getitem__(idx)
-        sample_chosen = {f"chosen_{key}": value for key, value in sample.items()}
-        self.answers = self.rejected_answer
-        sample = super().__getitem__(idx)
-        sample = {f"rejected_{key}": value for key, value in sample.items()}
-        sample_chosen.update(sample)
-        sample = sample_chosen
-
         sample.pop("reward_model_prompt_text", None)
+        if self.cfg.dataset.add_eos_token_to_answer:
+            # remove EOS from input ids
+            for key in ["input_ids", "attention_mask", "labels"]:
+                if key in sample:
+                    sample[key] = sample[key][:-1]
+
+        idx = self.indices[idx]
+
+        answer_input_ids = []
+        for name, text in [
+            ("chosen", self.chosen_answers[idx]),
+            ("rejected", self.rejected_answer[idx]),
+        ]:
+            answer_input_id = self.encode(
+                self.tokenizer,
+                text=text,
+                max_length=(
+                    self.cfg.tokenizer.max_length_answer
+                    - int(self.cfg.dataset.add_eos_token_to_answer)
+                ),
+                truncation_side="right",
+            )["input_ids"]
+            if self.cfg.dataset.add_eos_token_to_answer:
+                answer_input_id = torch.cat(
+                    [
+                        answer_input_id,
+                        torch.Tensor([self.tokenizer.eos_token_id]).long(),
+                    ],
+                    dim=0,
+                )
+            answer_input_ids.append(answer_input_id)
+
+        # Need to right pad rejected and chosen answer to same length
+        max_length = max(
+            [len(answer_input_id) for answer_input_id in answer_input_ids]
+        ) + len(sample["input_ids"])
+        for name, answer_input_id in zip(["chosen", "rejected"], answer_input_ids):
+            input_ids = torch.cat([sample["input_ids"], answer_input_id], dim=0)
+            attention_mask = torch.cat([sample["attention_mask"],
+                                        torch.ones_like(answer_input_id)],
+                                       dim=0)
+            sample.update(
+                self.right_pad_tokens(
+                    input_ids,
+                    attention_mask=attention_mask,
+                    max_length=max_length,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    prefix=f"{name}_",
+                )
+            )
+            # no need to mask original labels, as logits for rejected and accepted input ids will be the same
+            # conditioned on input_ids
+            labels = sample[f"{name}_input_ids"].clone()
+            attention_mask = sample[f"{name}_attention_mask"]
+            labels.masked_fill_(attention_mask, -100)
+            if self.cfg.dataset.add_eos_token_to_answer:
+                # eos_token may be equal to pad_token. Add the label back manually.
+                labels[
+                    -torch.max(torch.where(attention_mask != 0)[0]).cpu().item()
+                ] = self.tokenizer.eos_token_id
+
+            sample[f"{name}_label"] = labels
+
+        ['input_ids', 'attention_mask',  'labels'
+         'prompt_input_ids', 'prompt_attention_mask',
+         'chosen_input_ids', 'chosen_attention_mask', 'chosen_label',
+         'rejected_input_ids', 'rejected_attention_mask', 'rejected_label']
+
+        return sample
+
+    def right_pad_tokens(
+        self,
+        input_ids,
+        attention_mask,
+        max_length,
+        pad_token_id,
+        prefix="",
+    ):
+        sample = {}
+        sample[f"{prefix}input_ids"] = torch.full((max_length,), pad_token_id)
+        sample[f"{prefix}input_ids"][: len(input_ids)] = input_ids
+        sample[f"{prefix}attention_mask"] = torch.zeros(max_length)
+        sample[f"{prefix}attention_mask"][: len(input_ids)] = attention_mask
         return sample
