@@ -149,3 +149,23 @@ class CustomDataset(LLMCustomDataset):
         sample[f"{prefix}attention_mask"] = torch.zeros(max_length)
         sample[f"{prefix}attention_mask"][: len(input_ids)] = attention_mask
         return sample
+
+    def postprocess_output(self, cfg, df: pd.DataFrame, output: Dict) -> Dict:
+        output["target_text"] = self.chosen_answers
+        metric_func, _, _ = cfg.prediction.metric_class.get(cfg.prediction.metric)
+        if "GPT" in cfg.prediction.metric:
+            metrics, explanations = metric_func(
+                cfg,
+                output,
+                df,
+                raw_results=True,
+            )
+            output["explanations"] = explanations
+        else:
+            metrics = metric_func(
+                cfg,
+                output,
+                df,
+            )
+        output["metrics"] = metrics
+        return output
