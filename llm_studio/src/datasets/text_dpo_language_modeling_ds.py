@@ -70,6 +70,7 @@ class CustomDataset(LLMCustomDataset):
         sample.pop("reward_model_prompt_text", None)
         if self.cfg.dataset.add_eos_token_to_answer:
             # remove EOS from input ids
+            # TODO: fix max length in this case to be + 1
             for key in ["input_ids", "attention_mask", "labels"]:
                 if key in sample:
                     sample[key] = sample[key][:-1]
@@ -85,8 +86,8 @@ class CustomDataset(LLMCustomDataset):
                 self.tokenizer,
                 text=text,
                 max_length=(
-                    self.cfg.tokenizer.max_length_answer
-                    - int(self.cfg.dataset.add_eos_token_to_answer)
+                        self.cfg.tokenizer.max_length_answer
+                        - int(self.cfg.dataset.add_eos_token_to_answer)
                 ),
                 truncation_side="right",
             )["input_ids"]
@@ -104,11 +105,12 @@ class CustomDataset(LLMCustomDataset):
         max_length = max(
             [len(answer_input_id) for answer_input_id in answer_input_ids]
         ) + len(sample["input_ids"])
+        max_length = min(max_length, self.cfg.tokenizer.max_length)
         for name, answer_input_id in zip(["chosen", "rejected"], answer_input_ids):
-            input_ids = torch.cat([sample["input_ids"], answer_input_id], dim=0)
+            input_ids = torch.cat([sample["input_ids"], answer_input_id], dim=0)[-max_length:]
             attention_mask = torch.cat([sample["attention_mask"],
                                         torch.ones_like(answer_input_id)],
-                                       dim=0)
+                                       dim=0)[-max_length:]
             sample.update(
                 self.right_pad_tokens(
                     input_ids,
@@ -129,22 +131,17 @@ class CustomDataset(LLMCustomDataset):
                     -torch.max(torch.where(attention_mask != 0)[0]).cpu().item()
                 ] = self.tokenizer.eos_token_id
 
-            sample[f"{name}_label"] = labels
-
-        ['input_ids', 'attention_mask',  'labels'
-         'prompt_input_ids', 'prompt_attention_mask',
-         'chosen_input_ids', 'chosen_attention_mask', 'chosen_label',
-         'rejected_input_ids', 'rejected_attention_mask', 'rejected_label']
+            sample[f"{name}_labels"] = labels
 
         return sample
 
     def right_pad_tokens(
-        self,
-        input_ids,
-        attention_mask,
-        max_length,
-        pad_token_id,
-        prefix="",
+            self,
+            input_ids,
+            attention_mask,
+            max_length,
+            pad_token_id,
+            prefix="",
     ):
         sample = {}
         sample[f"{prefix}input_ids"] = torch.full((max_length,), pad_token_id)

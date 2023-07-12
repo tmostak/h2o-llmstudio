@@ -11,18 +11,22 @@ logger = logging.getLogger(__name__)
 
 
 class DPOLoss(nn.Module):
+    """
+    Implementation based upon
+    https://github.com/eric-mitchell/direct-preference-optimization
+    """
     def __init__(self, cfg: Any):
         super().__init__()
         self.cfg = cfg
 
     def forward(
-        self,
-        policy_chosen_logps: torch.FloatTensor,
-        policy_rejected_logps: torch.FloatTensor,
-        reference_chosen_logps: torch.FloatTensor,
-        reference_rejected_logps: torch.FloatTensor,
-        beta: float,
-        reference_free: bool = False,
+            self,
+            policy_chosen_logps: torch.FloatTensor,
+            policy_rejected_logps: torch.FloatTensor,
+            reference_chosen_logps: torch.FloatTensor,
+            reference_rejected_logps: torch.FloatTensor,
+            beta: float,
+            reference_free: bool = False,
     ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         """Compute the DPO loss for a batch of policy and reference model log probabilities.
 
@@ -50,42 +54,12 @@ class DPOLoss(nn.Module):
         losses = -F.logsigmoid(beta * logits)
         chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
         rejected_rewards = (
-            beta * (policy_rejected_logps - reference_rejected_logps).detach()
+                beta * (policy_rejected_logps - reference_rejected_logps).detach()
         )
 
         return losses, chosen_rewards, rejected_rewards
 
 
-def _get_batch_logps(
-    logits: torch.FloatTensor, labels: torch.LongTensor, average_log_prob: bool = False
-) -> torch.FloatTensor:
-    """Compute the log probabilities of the given labels under the given logits.
-
-    Args:
-        logits: Logits of the model (unnormalized). Shape: (batch_size, sequence_length, vocab_size)
-        labels: Labels for which to compute the log probabilities. Label tokens with a value of -100 are ignored. Shape: (batch_size, sequence_length)
-        average_log_prob: If True, return the average log probability per (non-masked) token. Otherwise, return the sum of the log probabilities of the (non-masked) tokens.
-
-    Returns:
-        A tensor of shape (batch_size,) containing the average/sum log probabilities of the given labels under the given logits.
-    """
-    assert logits.shape[:-1] == labels.shape
-
-    labels = labels[:, 1:].clone()
-    logits = logits[:, :-1, :]
-    loss_mask = labels != -100
-
-    # dummy token; we'll ignore the losses on these tokens later
-    labels[labels == -100] = 0
-
-    per_token_logps = torch.gather(
-        logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)
-    ).squeeze(2)
-
-    if average_log_prob:
-        return (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
-    else:
-        return (per_token_logps * loss_mask).sum(-1)
 
 
 class Losses:
