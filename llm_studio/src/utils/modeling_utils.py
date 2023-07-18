@@ -12,9 +12,19 @@ import torch
 from peft import LoraConfig, get_peft_model
 from torch.cuda.amp import autocast
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
+    CPUOffload,
     FullyShardedDataParallel,
     MixedPrecision,
 )
+
+from torch.distributed.fsdp.wrap import (
+    size_based_auto_wrap_policy,
+    enable_wrap,
+    wrap,
+)
+
+import functools
+
 from torch.nn.parallel import DistributedDataParallel
 from tqdm import tqdm
 from transformers import (
@@ -88,16 +98,20 @@ def save_checkpoint(model: torch.nn.Module, path: str, cfg: Any):
     Returns:
         Dictionary with all the keys to save
     """
-
+    print ("Before unwrap model")
     model = unwrap_model(model)
+    print ("After unwrap model")
 
     if hasattr(cfg.training, "lora") and cfg.training.lora:
         model.backbone.save_pretrained(path)
 
     checkpoint = {"model": model.state_dict()}
 
+    print ("Pre-save")
     if path is not None:
+        print(path)
         torch.save(checkpoint, os.path.join(path, "checkpoint.pth"))
+    print ("Post-save")
 
 
 def load_model_weights(
@@ -185,7 +199,8 @@ def load_checkpoint(
 
 def wrap_model_distributed(model: torch.nn.Module, cfg: Any, fsdp: bool):
     if fsdp:
-        auto_wrap_policy = None
+        auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=1000000)
+        #auto_wrap_policy = None
 
         mixed_precision_policy = None
         dtype = None
@@ -195,6 +210,8 @@ def wrap_model_distributed(model: torch.nn.Module, cfg: Any, fsdp: bool):
             mixed_precision_policy = MixedPrecision(
                 param_dtype=dtype, reduce_dtype=dtype, buffer_dtype=dtype
             )
+        print("Using FDSP")
+        print(cfg.architecture)
         model = FullyShardedDataParallel(
             model,
             # sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,
@@ -209,6 +226,7 @@ def wrap_model_distributed(model: torch.nn.Module, cfg: Any, fsdp: bool):
         find_unused_parameters = cfg.environment.find_unused_parameters
         if getattr(cfg.architecture, "gradient_checkpointing", None):
             find_unused_parameters = False
+        print(f"Find unused parameters: {find_unused_parameters}")
         model = DistributedDataParallel(
             model,
             device_ids=[cfg.environment._local_rank],
@@ -622,7 +640,10 @@ def create_nlp_backbone(cfg, model_class=AutoModel) -> Any:
                 )
 
     if cfg.architecture.gradient_checkpointing:
+        print("Gradient checkpointing enabled")
         backbone.gradient_checkpointing_enable()
+    else:
+        print("Gradient checkpointing disabled")
 
     if backbone.generation_config.eos_token_id != config.eos_token_id:
         logger.warning(

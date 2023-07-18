@@ -368,7 +368,9 @@ def run_train(
                             f"val_loss {val_loss:.5}, val_{cfg.prediction.metric} "
                             f"{val_metric:.5} to {checkpoint_path}"
                         )
-                        save_checkpoint(model=model, path=checkpoint_path, cfg=cfg)
+                        print("Before save_checkpoint")
+                        #save_checkpoint(model=model, path=checkpoint_path, cfg=cfg)
+                        print("After save_checkpoint")
 
                 model.train()
 
@@ -386,6 +388,8 @@ def run_train(
 
     if cfg.environment._distributed:
         torch.distributed.barrier()
+    checkpoint_path = cfg.output_directory
+    save_checkpoint(model=model, path=checkpoint_path, cfg=cfg)
 
     return val_loss, val_metric
 
