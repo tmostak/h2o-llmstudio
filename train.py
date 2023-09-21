@@ -639,24 +639,32 @@ def run_train_rlhf(
                     cfg=cfg, model=model, val_dataloader=val_dataloader, val_df=val_df
                 )
                 if cfg.environment._local_rank == 0:
-                    if cfg.training.save_best_checkpoint:
-                        if objective_op(val_metric, best_val_metric):
+                    if cfg.training.save_checkpoints:
+                        if cfg.training.save_best_checkpoint:
+                            if objective_op(val_metric, best_val_metric):
+                                checkpoint_path = cfg.output_directory
+                                logger.info(
+                                    f"Saving best model checkpoint: "
+                                    f"val_{cfg.prediction.metric} {best_val_metric:.5} -> "
+                                    f"{val_metric:.5} to {checkpoint_path}"
+                                )
+                                save_checkpoint(model=model, path=checkpoint_path, cfg=cfg)
+                                best_val_metric = val_metric
+                        else:
                             checkpoint_path = cfg.output_directory
                             logger.info(
-                                f"Saving best model checkpoint: "
-                                f"val_{cfg.prediction.metric} {best_val_metric:.5} -> "
+                                f"Saving last model checkpoint: "
+                                f"val_loss {val_loss:.5}, val_{cfg.prediction.metric} "
                                 f"{val_metric:.5} to {checkpoint_path}"
                             )
                             save_checkpoint(model=model, path=checkpoint_path, cfg=cfg)
-                            best_val_metric = val_metric
                     else:
-                        checkpoint_path = cfg.output_directory
                         logger.info(
-                            f"Saving last model checkpoint: "
+                            f"Not saving model checkpoint: "
                             f"val_loss {val_loss:.5}, val_{cfg.prediction.metric} "
-                            f"{val_metric:.5} to {checkpoint_path}"
+                            f"{val_metric:.5}"
                         )
-                        save_checkpoint(model=model, path=checkpoint_path, cfg=cfg)
+
 
                 model.train()
 
@@ -868,13 +876,20 @@ def run(cfg: Any) -> None:
 
     if cfg.environment._local_rank == 0:
         if cfg.training.epochs == 0:
-            checkpoint_path = cfg.output_directory
-            logger.info(
-                f"Saving last model checkpoint: "
-                f"val_loss {val_loss:.5}, val_{cfg.prediction.metric} "
-                f"{val_metric:.5} to {checkpoint_path}"
-            )
-            save_checkpoint(model=model, path=checkpoint_path, cfg=cfg)
+            if cfg.training.save_checkpoints:
+                checkpoint_path = cfg.output_directory
+                logger.info(
+                    f"Saving last model checkpoint: "
+                    f"val_loss {val_loss:.5}, val_{cfg.prediction.metric} "
+                    f"{val_metric:.5} to {checkpoint_path}"
+                )
+                save_checkpoint(model=model, path=checkpoint_path, cfg=cfg)
+            else:
+                logger.info(
+                    f"Not saving last model checkpoint: "
+                    f"val_loss {val_loss:.5}, val_{cfg.prediction.metric} "
+                    f"{val_metric:.5}"
+                )
 
         save_config_yaml(f"{cfg.output_directory}/cfg.yaml", cfg)
 

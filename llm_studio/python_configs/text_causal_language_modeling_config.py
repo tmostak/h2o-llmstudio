@@ -46,6 +46,7 @@ class ConfigNLPCausalLMDataset(DefaultConfig):
     text_system_start: str = "<|system|>"
     text_prompt_start: str = "<|prompt|>"
     text_answer_separator: str = "<|answer|>"
+    custom_tokens: str = ""
 
     limit_chained_samples: bool = False
     add_eos_token_to_system: bool = True
@@ -153,6 +154,7 @@ class ConfigNLPCausalLMTraining(DefaultConfig):
     lora_dropout: float = 0.05
     lora_target_modules: str = ""
 
+    save_checkpoints: bool = True
     save_best_checkpoint: bool = False
     evaluation_epochs: float = 1.0
     evaluate_before_training: bool = False

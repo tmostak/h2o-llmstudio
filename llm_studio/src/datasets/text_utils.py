@@ -103,6 +103,15 @@ def get_tokenizer(cfg: Any):
     cfg.tokenizer._stop_words = [
         stop_word for stop_word in cfg.tokenizer._stop_words if stop_word != ""
     ]
+
+    custom_tokens = list(filter(None, cfg.dataset.custom_tokens.split(",")))
+    for custom_token in custom_tokens:
+        if (
+            custom_token != ""
+            and (custom_token not in tokenizer.get_vocab())
+        ):
+            tokenizer.add_tokens([custom_token])
+    
     cfg.tokenizer._vocab_length = len(tokenizer)
 
     cfg.tokenizer._stop_words_ids = []

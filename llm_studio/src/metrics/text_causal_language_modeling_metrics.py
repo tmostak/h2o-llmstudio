@@ -18,6 +18,12 @@ from tqdm import tqdm
 from llm_studio.src.datasets.text_utils import get_texts
 from llm_studio.src.utils.logging_utils import TqdmToLogger
 
+import heavyai
+import csv
+
+from itertools import permutations
+import re
+
 logger = logging.getLogger(__name__)
 
 
@@ -124,6 +130,181 @@ def gpt_score(
     return np.mean(scores)
 
 
+#def extract_string_columns_and_literals_pairs(query):
+#    pattern = r"(\w+)\s*=\s*'([^']*)'"
+#    matches = re.findall(pattern, query)
+#    return [{"column": match[0], "value": match[1]} for match in matches]
+
+#def find_correct_literals(query, con):
+#    string_cols_and_literals = extract_string_columns_and_literals_pairs(query)
+#    for string_col_and_literal in string_cols_and_literals:
+#        string_col = string_col_and_literal["column"]
+#        string_literal = string_col_and_literal["value"]
+#        literal_check_query = f"SELECT {string_col}, COUNT(*) AS num_matches FROM "
+
+
+def extract_sql_query(text):
+    if text.strip().lower().startswith("select"):
+        return text
+    pattern = r"SQL query:\n(.+?);"
+    match = re.search(pattern, text, re.DOTALL)
+    if match:
+        return match.group(1).strip() + ";"
+    else:
+        return "No SQL query found"
+
+def sql_rate_reply(question, db_id, query_id, gold_query, pred_query):
+    # motivated by https://github.com/lm-sys/FastChat/tree/main/fastchat/pred
+    query_metadata = {
+        "db_id": db_id,
+        "query_id": query_id,
+        "gold_query": gold_query,
+        "pred_query": pred_query,
+        "success": False,
+        "status": "success",
+        "error": None,
+    }
+    try:
+        con = heavyai.connect(user="admin", password="HyperInteractive", host="localhost", dbname=db_id)
+
+        extracted_gold_query = extract_sql_query(gold_query)
+        gold_df = pd.read_sql(extracted_gold_query, con)
+        extracted_pred_query = extract_sql_query(pred_query)
+        pred_df = pd.read_sql(extracted_pred_query, con)
+        num_gold_rows = len(gold_df.axes[0])
+        num_pred_rows = len(pred_df.axes[0])
+        num_gold_cols = len(gold_df.axes[1])
+        num_pred_cols = len(pred_df.axes[1])
+
+        if num_gold_rows != num_pred_rows:
+            print("ROW COUNT MISMATCH")
+            print(extracted_gold_query)
+            print(extracted_pred_query)
+            query_metadata["status"] = "row_count_mismatch"
+            return 0.0, query_metadata 
+        if num_gold_cols != num_pred_cols:
+            print("COL COUNT MISMATCH")
+            print(extracted_gold_query)
+            print(extracted_pred_query)
+            query_metadata["status"] = "col_count_mismatch"
+            return 0.0, query_metadata 
+        gold_query_has_order_by = gold_query.lower().find("order by") >= 0  
+        dfs_are_equal = None
+        if gold_query_has_order_by:
+            dfs_are_equal = np.array_equal(gold_df.values, pred_df.values)
+        else:
+            gold_df_sorted = gold_df.sort_values(by=list(gold_df.columns)).reset_index(drop=True)
+            pred_df_sorted = pred_df.sort_values(by=list(pred_df.columns)).reset_index(drop=True)
+            dfs_are_equal = np.array_equal(gold_df_sorted.values, pred_df_sorted.values)
+            #dfs_are_equal = gold_df.sort_values(by=list(gold_df.columns)).reset_index(drop=True).equals(pred_df.sort_values(by=list(pred_df.columns)).reset_index(drop=True))
+        if dfs_are_equal:
+            query_metadata["success"] = True
+            return 1.0, query_metadata 
+        else:
+            for cols in permutations(pred_df.columns):
+                pred_df_perm = pred_df[list(cols)]
+                if gold_query_has_order_by:
+                    dfs_are_equal = np.array_equal(gold_df.values, pred_df_perm.values)
+                else:
+                    gold_df_sorted = gold_df.sort_values(by=list(gold_df.columns)).reset_index(drop=True)
+                    pred_df_perm_sorted = pred_df_perm.sort_values(by=list(pred_df_perm.columns)).reset_index(drop=True)
+                    dfs_are_equal = np.array_equal(gold_df_sorted.values, pred_df_perm_sorted.values)
+                if dfs_are_equal:
+                    print("COLUMN ORDER DIFF")
+                    query_metadata["success"] = True
+                    query_metadata["status"] = "column_order_difference"
+                    return 1.0, query_metadata 
+            print("VALUES MISMATCH")
+            query_metadata["status"] = "values_mismatch"
+            print(extracted_gold_query)
+            print(extracted_pred_query)
+            return 0.0, query_metadata 
+    except Exception as e:
+        print("QUERY FAIL")
+        query_metadata["status"] = "execution_error"
+        query_metadata["error"] = e 
+        return 0.0, query_metadata 
+
+def write_sql_metadata_to_csv(metadata, output_file):
+    fieldnames = [
+        "query_id",
+        "db_id",
+        "gold_query",
+        "pred_query",
+        "success"
+        "status",
+        "error"
+    ]
+    metadata_to_write = [
+        (
+            obj["query_id"],
+            obj["db_id"],
+            obj["gold_query"],
+            obj["pred_query"],
+            obj["success"],
+            obj["status"],
+            obj["error"],
+        )
+        for obj in metadata
+    ]
+    with open(output_file, mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(fieldnames)
+        writer.writerows(metadata_to_write)
+
+
+def sql_score(
+    cfg: Any,
+    results: Dict,
+    val_df: pd.DataFrame,
+    raw_results: bool = False,
+) -> Union[NDArray, Tuple[NDArray, List[str]]]:
+
+    prompts = get_texts(val_df, cfg, separator="")
+    db_ids = None
+    db_ids = val_df["db_id"].astype(str)
+    db_ids = db_ids.values
+    query_ids = None
+    if "id" in val_df:
+        query_ids = val_df["id"].astype(str)
+    else:
+        query_ids = val_df["query_id"].astype(str)
+    query_ids = query_ids.values
+
+    ret = Parallel(n_jobs=8, backend="multiprocessing")(
+        delayed(sql_rate_reply)(
+            prompt,
+            db_id,
+            query_id,
+            target_text,
+            predicted_text,
+        )
+        for prompt, db_id, query_id, predicted_text, target_text in tqdm(
+            zip(
+                prompts,
+                db_ids,
+                query_ids,
+                results["predicted_text"],
+                results["target_text"],
+            ),
+            file=TqdmToLogger(logger, level=logging.INFO),
+            desc=f"SQL eval",
+            total=len(prompts),
+        )
+    )
+
+    scores = [x[0] for x in ret]
+    explanations = [x[1]["status"] for x in ret]
+    query_metadata = [x[1] for x in ret]
+    write_sql_metadata_to_csv(query_metadata, "/home/ubuntu/sql_eval.log")
+
+
+    if raw_results:
+        return np.array(scores), explanations
+    return np.array(scores)
+    #return np.mean(scores)
+
+
 class Perplexity(nn.Module):
     def __init__(self, cfg: Any, reduce: bool = True):
         super().__init__()
@@ -168,6 +349,7 @@ class Metrics:
             "mean",
         ),
         "GPT": (gpt_score, "max", "mean"),
+        "SQL": (sql_score, "max", "mean")
     }
 
     @classmethod
