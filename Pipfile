@@ -4,18 +4,23 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 
 [[source]]
-name = "pytorch"
+name = "pytorch-cuda"
 url = "https://download.pytorch.org/whl/cu118"
+verify_ssl = false
+
+[[source]]
+name = "pytorch-mps"
+url = "https://download.pytorch.org/whl/nightly/cpu"
 verify_ssl = false
 
 [requires]
 python_version = "3.10"
 
 [packages]
-torch = {index = "pytorch", version = "==2.0.1+cu118"}
-torchvision = {index = "pytorch", version = "==0.15.2+cu118"}
+torch = {index = "pytorch-mps", version = "==2.2.0.dev20230920", sys_platform = "== 'darwin'"}
+torchvision = {index = "pytorch-mps", version = "==0.17.0.dev20230920", sys_platform = "== 'darwin'"}
 tqdm = ">=4.65.0, <5.0.0"
-transformers = "==4.31.0"
+transformers = "==4.33.2"
 numpy = ">=1.23.2, <2.0.0"
 pandas = ">=1.4.2, <2.0.0"
 scikit-learn = ">=1.0.2, <2.0.0"
