@@ -299,6 +299,16 @@ def get_scheduler(
         Learning Rate Scheduler
     """
 
+    if cfg.training.schedule == "Cosine":
+        scheduler = Schedulers.get("Cosine")(
+            optimizer=optimizer,
+            num_warmup_steps=cfg.training.warmup_epochs * epoch_steps,
+            num_training_steps=cfg.training.epochs * epoch_steps,
+            min_lr=cfg.training.min_learning_rate
+        )
+        return scheduler
+
+
     scheduler = Schedulers.get(cfg.training.schedule)(
         optimizer=optimizer,
         num_warmup_steps=cfg.training.warmup_epochs * epoch_steps,

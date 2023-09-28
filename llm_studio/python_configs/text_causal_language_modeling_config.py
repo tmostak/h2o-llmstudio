@@ -135,6 +135,7 @@ class ConfigNLPCausalLMTraining(DefaultConfig):
     optimizer: str = "AdamW"
 
     learning_rate: float = 0.0001
+    min_learning_rate: float = 0.0
     differential_learning_rate_layers: Tuple[str, ...] = ()
     differential_learning_rate: float = 0.00001
 
@@ -167,6 +168,9 @@ class ConfigNLPCausalLMTraining(DefaultConfig):
 
         self._possible_values["learning_rate"] = possible_values.Number(
             step=0.000001, min=0.000001
+        )
+        self._possible_values["min_learning_rate"] = possible_values.Number(
+            step=0.000001, min=0.00000
         )
         self._possible_values[
             "differential_learning_rate_layers"

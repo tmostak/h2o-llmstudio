@@ -199,6 +199,8 @@ class DefaultConfigProblemBase(DefaultConfig):
     environment: Any
     logging: Any
 
+    #min_learning_rate: 0
+
     @property
     def problem_type(self) -> str:
         """
