@@ -146,6 +146,9 @@ def gpt_score(
 def extract_sql_query(text):
     if text.strip().lower().startswith("select"):
         return text
+    pause_splits = text.split('<pause>')
+    if len(pause_splits) > 1:
+        return pause_splits[-1].strip()
     pattern = r"SQL query:\n(.+?);"
     match = re.search(pattern, text, re.DOTALL)
     if match:
@@ -252,6 +255,85 @@ def write_sql_metadata_to_csv(metadata, output_file):
         writer.writerow(fieldnames)
         writer.writerows(metadata_to_write)
 
+def parse_sql_tables_response(response_str):
+    """
+    Parse the response string to a dictionary
+    """
+    response_dict = {}
+    for line in response_str.strip().split('\n'):
+        table, value = line.split(': ')
+        response_dict[table] = int(value)
+    return response_dict
+
+def sql_tables_rate_reply(question, db_id, query_id, gold_response, pred_response):
+    query_metadata = {
+        "db_id": db_id,
+        "query_id": query_id,
+        "gold_response": gold_response,
+        "pred_response": pred_response,
+        "success": False,
+        "true_positives": 0,
+        "false_positives": 0,
+        "true_negatives": 0,
+        "false_negatives": 0,
+    }
+    gold_dict = parse_sql_tables_response(gold_response)
+    pred_dict = parse_sql_tables_response(pred_response)
+
+    for table in gold_dict.keys():
+        gold_value = gold_dict.get(table, 0)
+        pred_value = pred_dict.get(table, 0)
+
+        if gold_value == 1 and pred_value == 1:
+            query_metadata["true_positives"] += 1
+        elif gold_value == 0 and pred_value == 1:
+            query_metadata["false_positives"] += 1
+        elif gold_value == 1 and pred_value == 0:
+            query_metadata["false_negatives"] += 1
+        elif gold_value == 0 and pred_value == 0:
+            query_metadata["true_negatives"] += 1
+
+    # Check for tables in pred_dict that are not in gold_dict (these are also false positives)
+    for table in pred_dict.keys():
+        if table not in gold_dict:
+            if pred_dict[table] == 1:
+                query_metadata["false_positives"] += 1
+
+    if gold_dict == pred_dict:
+        query_metadata["success"] = True
+        return 1.0, query_metadata
+    return 0.0, query_metadata
+
+def write_sql_tables_metadata_to_csv(metadata, output_file):
+    fieldnames = [
+        "query_id",
+        "db_id",
+        "gold_response",
+        "pred_response",
+        "success",
+        "true_positives",
+        "false_positives",
+        "true_negatives",
+        "false_negatives",
+    ]
+    metadata_to_write = [
+        (
+            obj["query_id"],
+            obj["db_id"],
+            obj["gold_response"],
+            obj["pred_response"],
+            obj["success"],
+            obj["true_positives"],
+            obj["false_positives"],
+            obj["true_negatives"],
+            obj["false_negatives"],
+        )
+        for obj in metadata
+    ]
+    with open(output_file, mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(fieldnames)
+        writer.writerows(metadata_to_write)
 
 def sql_score(
     cfg: Any,
@@ -304,6 +386,57 @@ def sql_score(
     return np.array(scores)
     #return np.mean(scores)
 
+def sql_tables_score(
+    cfg: Any,
+    results: Dict,
+    val_df: pd.DataFrame,
+    raw_results: bool = False,
+) -> Union[NDArray, Tuple[NDArray, List[str]]]:
+
+    prompts = get_texts(val_df, cfg, separator="")
+    db_ids = None
+    db_ids = val_df["db_id"].astype(str)
+    db_ids = db_ids.values
+    query_ids = None
+    if "id" in val_df:
+        query_ids = val_df["id"].astype(str)
+    else:
+        query_ids = val_df["query_id"].astype(str)
+    query_ids = query_ids.values
+
+    ret = Parallel(n_jobs=8, backend="multiprocessing")(
+        delayed(sql_tables_rate_reply)(
+            prompt,
+            db_id,
+            query_id,
+            target_text,
+            predicted_text,
+        )
+        for prompt, db_id, query_id, predicted_text, target_text in tqdm(
+            zip(
+                prompts,
+                db_ids,
+                query_ids,
+                results["predicted_text"],
+                results["target_text"],
+            ),
+            file=TqdmToLogger(logger, level=logging.INFO),
+            desc=f"sql_tables_eval",
+            total=len(prompts),
+        )
+    )
+
+    scores = [x[0] for x in ret]
+    explanations = [str(x[1]["success"]) for x in ret]
+    query_metadata = [x[1] for x in ret]
+    write_sql_tables_metadata_to_csv(query_metadata, "/home/ubuntu/sql_tables_eval.log")
+
+
+    if raw_results:
+        return np.array(scores), explanations
+    return np.array(scores)
+    #return np.mean(scores)
+
 
 class Perplexity(nn.Module):
     def __init__(self, cfg: Any, reduce: bool = True):
@@ -349,7 +482,8 @@ class Metrics:
             "mean",
         ),
         "GPT": (gpt_score, "max", "mean"),
-        "SQL": (sql_score, "max", "mean")
+        "SQL": (sql_score, "max", "mean"),
+        "SQL_Tables": (sql_tables_score, "max", "mean")
     }
 
     @classmethod
