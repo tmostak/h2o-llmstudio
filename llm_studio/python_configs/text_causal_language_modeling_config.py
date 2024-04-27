@@ -154,6 +154,7 @@ class ConfigNLPCausalLMTraining(DefaultConfig):
     lora_dropout: float = 0.05
     lora_target_modules: str = ""
 
+    do_not_save_checkpoints: bool = False
     save_best_checkpoint: bool = False
     evaluation_epochs: float = 1.0
     evaluate_before_training: bool = False

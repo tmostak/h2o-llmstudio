@@ -87,6 +87,7 @@ def check_disk_space(model: torch.nn.Module, path: str):
 
 # TODO: currently not saving optimizer
 def save_checkpoint(model: torch.nn.Module, path: str, cfg: Any):
+
     """Saves a model checkpoint if the path is provided.
 
     Args:
@@ -96,6 +97,8 @@ def save_checkpoint(model: torch.nn.Module, path: str, cfg: Any):
     Returns:
         Dictionary with all the keys to save
     """
+    if cfg.training.do_not_save_checkpoints:
+        return
 
     if cfg.environment.use_deepspeed:
         if path is not None:
