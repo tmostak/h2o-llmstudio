@@ -106,6 +106,8 @@ class CustomDataset(Dataset):
 
     @staticmethod
     def parse_prompt(cfg: Any, prompt: str):
+        if cfg.dataset.add_bos_token_to_prompt:
+            prompt += cfg._tokenizer_bos_token
         prompt = (
             f"{codecs.decode(cfg.dataset.text_prompt_start, 'unicode_escape')}{prompt}"
         )
@@ -119,6 +121,8 @@ class CustomDataset(Dataset):
 
     @staticmethod
     def parse_answer(cfg: Any, answer: str):
+        if cfg.dataset.add_bos_token_to_prompt:
+            answer = cfg.__tokenizer_bos_token + answer
         if cfg.dataset.add_eos_token_to_answer:
             answer += cfg.tokenizer._tokenizer_eos_token
         return answer
@@ -128,6 +132,8 @@ class CustomDataset(Dataset):
         # no system tokens if empty
         if system == "":
             return system
+        if cfg.dataset.add_bos_token_to_system:
+            system += cfg._tokenizer_bos_token
         system = (
             f"{codecs.decode(cfg.dataset.text_system_start, 'unicode_escape')}{system}"
         )
@@ -352,6 +358,13 @@ class CustomDataset(Dataset):
             ), "When using parent column, the dataframe requires an 'id' column. "
 
     def get_labels(self, prompt_encodings, answer_encodings):
+        #print("Get labels")
+        #if self.cfg.dataset.add_bos_token_to_answer:
+        #    # Prepend the BOS token to each answer encoding
+        #    answer_encodings = [
+        #        torch.cat([torch.tensor([self.tokenizer.bos_token_id]), answer_encoding])
+        #        for answer_encoding in answer_encodings
+        #    ]
         labels = torch.cat(
             [
                 torch.cat([prompt_encoding, answer_encoding])
@@ -378,7 +391,8 @@ class CustomDataset(Dataset):
             labels.masked_fill_(prompt_mask, -100)
         if self.cfg.tokenizer.max_length < len(labels):
             labels = labels[-self.cfg.tokenizer.max_length :]
-
+        #torch.set_printoptions(sci_mode=False)
+        #print(labels)
         sample = dict(labels=torch.full((self.cfg.tokenizer.max_length,), -100))
         sample["labels"][-len(labels) :] = labels
         return sample

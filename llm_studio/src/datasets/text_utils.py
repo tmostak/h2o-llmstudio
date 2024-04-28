@@ -96,6 +96,7 @@ def get_tokenizer(cfg: DefaultConfigProblemBase):
         # this usually is a safe choice and mostly refers to eos token
         cfg.tokenizer._tokenizer_mask_token_id = len(tokenizer) - 1
 
+    cfg.tokenizer._tokenizer_bos_token = tokenizer.bos_token
     cfg.tokenizer._tokenizer_eos_token = tokenizer.eos_token
 
     if hasattr(cfg.prediction, "stop_tokens"):
