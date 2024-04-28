@@ -48,6 +48,9 @@ class ConfigNLPCausalLMDataset(DefaultConfig):
     text_answer_separator: str = "<|answer|>"
 
     limit_chained_samples: bool = False
+    add_bos_token_to_system: bool = False
+    add_bos_token_to_prompt: bool = False
+    add_bos_token_to_answer: bool = False
     add_eos_token_to_system: bool = True
     add_eos_token_to_prompt: bool = True
     add_eos_token_to_answer: bool = True
@@ -120,9 +123,15 @@ class ConfigNLPCausalLMDataset(DefaultConfig):
         )
 
         self._nesting.add(
+            ["text_system_start", "add_bos_token_to_system"],
+            [Dependency(key="system_column", value="None", is_set=False)],
+        )
+
+        self._nesting.add(
             ["text_system_start", "add_eos_token_to_system"],
             [Dependency(key="system_column", value="None", is_set=False)],
         )
+
 
         self._visibility["dataset_class"] = -1
 

@@ -112,6 +112,8 @@ class CustomDataset(Dataset):
 
     @staticmethod
     def parse_prompt(cfg: Any, prompt: str):
+        if cfg.dataset.add_bos_token_to_prompt:
+            prompt += cfg._tokenizer_bos_token
         prompt = (
             f"{codecs.decode(cfg.dataset.text_prompt_start, 'unicode_escape')}{prompt}"
         )
@@ -128,6 +130,8 @@ class CustomDataset(Dataset):
         # no system tokens if empty
         if system == "":
             return system
+        if cfg.dataset.add_bos_token_to_system:
+            system += cfg._tokenizer_bos_token
         system = (
             f"{codecs.decode(cfg.dataset.text_system_start, 'unicode_escape')}{system}"
         )
@@ -352,6 +356,13 @@ class CustomDataset(Dataset):
             ), "When using parent column, the dataframe requires an 'id' column. "
 
     def get_labels(self, prompt_encodings, answer_encodings):
+        #print("Get labels")
+        #if self.cfg.dataset.add_bos_token_to_answer:
+        #    # Prepend the BOS token to each answer encoding
+        #    answer_encodings = [
+        #        torch.cat([torch.tensor([self.tokenizer.bos_token_id]), answer_encoding])
+        #        for answer_encoding in answer_encodings
+        #    ]
         labels = torch.cat(
             [
                 torch.cat([prompt_encoding, answer_encoding])
@@ -381,7 +392,8 @@ class CustomDataset(Dataset):
             labels[-1] = self.tokenizer.eos_token_id
         if self.cfg.tokenizer.max_length < len(labels):
             labels = labels[-self.cfg.tokenizer.max_length :]
-
+        #torch.set_printoptions(sci_mode=False)
+        #print(labels)
         sample = dict(labels=torch.full((self.cfg.tokenizer.max_length,), -100))
         sample["labels"][-len(labels) :] = labels
         return sample
@@ -454,12 +466,25 @@ class CustomDataset(Dataset):
         prompt_encoding = self.encode(
             self.tokenizer, prompt, self.cfg.tokenizer.max_length_prompt, "left"
         )["input_ids"]
-        max_length_answer = self.cfg.tokenizer.max_length_answer - int(
+        max_length_answer = self.cfg.tokenizer.max_length_answer 
+        - int(
+            self.cfg.dataset.add_bos_token_to_answer
+        )
+        - int(
             self.cfg.dataset.add_eos_token_to_answer
         )
         answer_encoding = self.encode(
             self.tokenizer, answer, max_length_answer, "right"
         )["input_ids"]
+        if self.cfg.dataset.add_bos_token_to_answer:
+            # Prepend the BOS token to the answer encoding
+            answer_encoding = torch.cat(
+                [
+                    torch.tensor([self.tokenizer.bos_token_id]),  # Add the BOS token
+                    answer_encoding
+                ],
+                dim=0
+            )
         if self.cfg.dataset.add_eos_token_to_answer:
             answer_encoding = torch.cat(
                 [
