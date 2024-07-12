@@ -121,8 +121,8 @@ class CustomDataset(Dataset):
 
     @staticmethod
     def parse_answer(cfg: Any, answer: str):
-        if cfg.dataset.add_bos_token_to_prompt:
-            answer = cfg.__tokenizer_bos_token + answer
+        if cfg.dataset.add_bos_token_to_answer:
+            answer = cfg.tokenizer._tokenizer_bos_token + answer
         if cfg.dataset.add_eos_token_to_answer:
             answer += cfg.tokenizer._tokenizer_eos_token
         return answer
@@ -133,8 +133,8 @@ class CustomDataset(Dataset):
         if system == "":
             return system
         if cfg.dataset.add_bos_token_to_system:
-            system += cfg._tokenizer_bos_token
-        system = (
+            system += cfg.tokenizer._tokenizer_bos_token
+        system += (
             f"{codecs.decode(cfg.dataset.text_system_start, 'unicode_escape')}{system}"
         )
         if cfg.dataset.add_eos_token_to_system:
