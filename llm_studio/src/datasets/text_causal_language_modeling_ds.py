@@ -107,8 +107,8 @@ class CustomDataset(Dataset):
     @staticmethod
     def parse_prompt(cfg: Any, prompt: str):
         if cfg.dataset.add_bos_token_to_prompt:
-            prompt += cfg._tokenizer_bos_token
-        prompt = (
+            prompt = cfg.tokenizer._tokenizer_bos_token
+        prompt += (
             f"{codecs.decode(cfg.dataset.text_prompt_start, 'unicode_escape')}{prompt}"
         )
         if cfg.dataset.add_eos_token_to_prompt:
